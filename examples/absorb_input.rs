@@ -5,6 +5,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseWheel},
     },
     prelude::*,
+    sprite_render::MeshMaterial2d
 };
 use bevy_egui::{
     egui,
@@ -80,9 +81,9 @@ fn ui_system(
     mut egui_global_settings: ResMut<EguiGlobalSettings>,
     mut text: Local<LoremIpsum>,
     mut last_events: Local<LastEvents>,
-    mut keyboard_input_events: EventReader<KeyboardInput>,
-    mut mouse_button_input_events: EventReader<MouseButtonInput>,
-    mut mouse_wheel_events: EventReader<MouseWheel>,
+    mut keyboard_input_events: MessageReader<KeyboardInput>,
+    mut mouse_button_input_events: MessageReader<MouseButtonInput>,
+    mut mouse_wheel_events: MessageReader<MouseWheel>,
 ) -> Result {
     if let Some(ev) = keyboard_input_events.read().last() {
         last_events.keyboard_input = Some(ev.clone());
@@ -151,7 +152,7 @@ fn pointer_input_system(
     materials: Res<Materials>,
     mesh: Single<(&mut Transform, &mut MeshMaterial2d<ColorMaterial>), Without<Camera2d>>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
-    mut mouse_wheel_event_reader: EventReader<MouseWheel>,
+    mut mouse_wheel_event_reader: MessageReader<MouseWheel>,
 ) {
     let (mut transform, mut material) = mesh.into_inner();
 

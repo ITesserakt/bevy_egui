@@ -181,7 +181,7 @@ use crate::text_agent::{
 use arboard::Clipboard;
 use bevy_app::prelude::*;
 #[cfg(feature = "render")]
-use bevy_asset::{load_internal_asset, AssetEvent, Assets, Handle};
+use bevy_asset::{load_internal_asset, AssetEvent, Assets, Handle, AssetId};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     prelude::*,
@@ -191,7 +191,7 @@ use bevy_ecs::{
 };
 #[cfg(feature = "render")]
 use bevy_image::{Image, ImageSampler};
-use bevy_input::InputSystem;
+use bevy_input::InputSystems;
 #[allow(unused_imports)]
 use bevy_log as log;
 #[cfg(feature = "picking")]
@@ -204,14 +204,14 @@ use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_reflect::Reflect;
 #[cfg(feature = "picking")]
-use bevy_render::camera::NormalizedRenderTarget;
+use bevy_camera::NormalizedRenderTarget;
 #[cfg(feature = "render")]
 use bevy_render::{
     extract_resource::{ExtractResource, ExtractResourcePlugin},
     render_resource::SpecializedRenderPipelines,
-    ExtractSchedule, Render, RenderApp, RenderSet,
+    ExtractSchedule, Render, RenderApp, RenderSystems,
 };
-use bevy_winit::cursor::CursorIcon;
+use bevy_window::CursorIcon;
 use output::process_output_system;
 #[cfg(all(
     feature = "manage_clipboard",
@@ -272,7 +272,7 @@ pub struct EguiPlugin {
     /// ```no_run,rust
     /// # use bevy::{
     /// #    prelude::*,
-    /// #    render::camera::RenderTarget,
+    /// #    camera::RenderTarget,
     /// #    window::{PresentMode, WindowRef, WindowResolution},
     /// # };
     /// # use bevy::ecs::schedule::ScheduleLabel;
@@ -695,18 +695,16 @@ impl EguiContexts<'_, '_> {
     /// Returns an Egui context with the [`PrimaryEguiContext`] component.
     #[inline]
     pub fn ctx_mut(&mut self) -> Result<&mut egui::Context, QuerySingleError> {
+        let query_type_name = bevy_utils::prelude::DebugName::type_name::<EguiContextsPrimaryQuery>();
+
         self.q.iter_mut().fold(
-            Err(QuerySingleError::NoEntities(core::any::type_name::<
-                EguiContextsPrimaryQuery,
-            >())),
+            Err(QuerySingleError::NoEntities(query_type_name.clone())),
             |result, (ctx, primary)| match (&result, primary) {
                 (Err(QuerySingleError::MultipleEntities(_)), _) => result,
                 (Err(QuerySingleError::NoEntities(_)), Some(_)) => Ok(ctx.into_inner().get_mut()),
                 (Err(QuerySingleError::NoEntities(_)), None) => result,
                 (Ok(_), Some(_)) => {
-                    Err(QuerySingleError::MultipleEntities(core::any::type_name::<
-                        EguiContextsPrimaryQuery,
-                    >()))
+                    Err(QuerySingleError::MultipleEntities(query_type_name.clone()))
                 }
                 (Ok(_), None) => result,
             },
@@ -790,23 +788,23 @@ impl EguiContexts<'_, '_> {
     /// You'll want to pass a strong handle if a texture is used only in Egui and there are no
     /// handle copies stored anywhere else.
     #[cfg(feature = "render")]
-    pub fn add_image(&mut self, image: Handle<Image>) -> egui::TextureId {
-        self.user_textures.add_image(image)
+    pub fn add_image(&mut self, image: impl Into<AssetId<Image>>) -> egui::TextureId {
+        self.user_textures.add_image(image.into())
     }
 
     /// Removes the image handle and an Egui texture id associated with it.
     #[cfg(feature = "render")]
     #[track_caller]
-    pub fn remove_image(&mut self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        self.user_textures.remove_image(image)
+    pub fn remove_image(&mut self, image: impl Into<AssetId<Image>>) -> Option<egui::TextureId> {
+        self.user_textures.remove_image(image.into())
     }
 
     /// Returns an associated Egui texture id.
     #[cfg(feature = "render")]
     #[must_use]
     #[track_caller]
-    pub fn image_id(&self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        self.user_textures.image_id(image)
+    pub fn image_id(&self, image: impl Into<AssetId<Image>>) -> Option<egui::TextureId> {
+        self.user_textures.image_id(image.into())
     }
 }
 
@@ -814,7 +812,7 @@ impl EguiContexts<'_, '_> {
 #[derive(Clone, Resource, ExtractResource)]
 #[cfg(feature = "render")]
 pub struct EguiUserTextures {
-    textures: HashMap<Handle<Image>, u64>,
+    textures: HashMap<AssetId<Image>, u64>,
     free_list: Vec<u64>,
 }
 
@@ -838,8 +836,9 @@ impl EguiUserTextures {
     ///
     /// You'll want to pass a strong handle if a texture is used only in Egui and there are no
     /// handle copies stored anywhere else.
-    pub fn add_image(&mut self, image: Handle<Image>) -> egui::TextureId {
-        let id = *self.textures.entry(image.clone()).or_insert_with(|| {
+    pub fn add_image(&mut self, image: impl Into<AssetId<Image>>) -> egui::TextureId {
+        let image = image.into();
+        let id = *self.textures.entry(image).or_insert_with(|| {
             let id = self
                 .free_list
                 .pop()
@@ -854,8 +853,9 @@ impl EguiUserTextures {
     }
 
     /// Removes the image handle and an Egui texture id associated with it.
-    pub fn remove_image(&mut self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        let id = self.textures.remove(image);
+    pub fn remove_image(&mut self, image: impl Into<AssetId<Image>>) -> Option<egui::TextureId> {
+        let image = image.into();
+        let id = self.textures.remove(&image);
         log::debug!("Remove image (id: {:?}, handle: {:?})", id, image);
         if let Some(id) = id {
             self.free_list.push(id);
@@ -865,9 +865,9 @@ impl EguiUserTextures {
 
     /// Returns an associated Egui texture id.
     #[must_use]
-    pub fn image_id(&self, image: &Handle<Image>) -> Option<egui::TextureId> {
+    pub fn image_id(&self, image: AssetId<Image>) -> Option<egui::TextureId> {
         self.textures
-            .get(image)
+            .get(&image)
             .map(|&id| egui::TextureId::User(id))
     }
 }
@@ -942,8 +942,8 @@ impl Plugin for EguiPlugin {
         app.init_resource::<ModifierKeysState>();
         app.init_resource::<EguiWantsInput>();
         app.init_resource::<WindowToEguiContextMap>();
-        app.add_event::<EguiInputEvent>();
-        app.add_event::<EguiFileDragAndDropEvent>();
+        app.add_message::<EguiInputEvent>();
+        app.add_message::<EguiFileDragAndDropEvent>();
 
         #[allow(deprecated)]
         if self.enable_multipass_for_primary_context {
@@ -970,7 +970,7 @@ impl Plugin for EguiPlugin {
             PreUpdate,
             (
                 EguiPreUpdateSet::InitContexts,
-                EguiPreUpdateSet::ProcessInput.after(InputSystem),
+                EguiPreUpdateSet::ProcessInput.after(InputSystems),
                 EguiPreUpdateSet::BeginPass,
             )
                 .chain(),
@@ -1190,15 +1190,15 @@ impl Plugin for EguiPlugin {
         )
         .add_systems(
             Render,
-            render::systems::prepare_egui_transforms_system.in_set(RenderSet::Prepare),
+            render::systems::prepare_egui_transforms_system.in_set(RenderSystems::Prepare),
         )
         .add_systems(
             Render,
-            render::systems::queue_bind_groups_system.in_set(RenderSet::Queue),
+            render::systems::queue_bind_groups_system.in_set(RenderSystems::Queue),
         )
         .add_systems(
             Render,
-            render::systems::queue_pipelines_system.in_set(RenderSet::Queue),
+            render::systems::queue_pipelines_system.in_set(RenderSystems::Queue),
         )
         .add_systems(Last, free_egui_textures_system);
 
@@ -1208,7 +1208,7 @@ impl Plugin for EguiPlugin {
                 app,
                 render::EGUI_SHADER_HANDLE,
                 "render/egui.wgsl",
-                bevy_render::render_resource::Shader::from_wgsl
+                bevy_shader::Shader::from_wgsl
             );
 
             let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -1292,20 +1292,20 @@ impl Plugin for EguiPlugin {
                 )
                 .add_systems(
                     Render,
-                    render::systems::prepare_egui_transforms_system.in_set(RenderSet::Prepare),
+                    render::systems::prepare_egui_transforms_system.in_set(RenderSystems::Prepare),
                 )
                 .add_systems(
                     Render,
                     render::systems::prepare_egui_render_target_data_system
-                        .in_set(RenderSet::Prepare),
+                        .in_set(RenderSystems::Prepare),
                 )
                 .add_systems(
                     Render,
-                    render::systems::queue_bind_groups_system.in_set(RenderSet::Queue),
+                    render::systems::queue_bind_groups_system.in_set(RenderSystems::Queue),
                 )
                 .add_systems(
                     Render,
-                    render::systems::queue_pipelines_system.in_set(RenderSet::Queue),
+                    render::systems::queue_pipelines_system.in_set(RenderSystems::Queue),
                 );
 
             // Configure a fixed rendering order between Bevy UI and egui.
@@ -1318,12 +1318,12 @@ impl Plugin for EguiPlugin {
                     .resource_mut::<bevy_render::render_graph::RenderGraph>();
                 let (below, above) = match self.ui_render_order {
                     UiRenderOrder::EguiAboveBevyUi => (
-                        bevy_ui::graph::NodeUi::UiPass.intern(),
+                        bevy_ui_render::graph::NodeUi::UiPass.intern(),
                         render::graph::NodeEgui::EguiPass.intern(),
                     ),
                     UiRenderOrder::BevyUiAboveEgui => (
                         render::graph::NodeEgui::EguiPass.intern(),
-                        bevy_ui::graph::NodeUi::UiPass.intern(),
+                        bevy_ui_render::graph::NodeUi::UiPass.intern(),
                     ),
                 };
                 if let Some(graph_2d) =
@@ -1333,7 +1333,7 @@ impl Plugin for EguiPlugin {
                     // In theory we could use RenderGraph::try_add_node_edge instead and ignore the result,
                     // but that still seems to end up writing the corrupt edge into the graph,
                     // causing the game to panic down the line.
-                    match graph_2d.get_node_state(bevy_ui::graph::NodeUi::UiPass) {
+                    match graph_2d.get_node_state(bevy_ui_render::graph::NodeUi::UiPass) {
                         Ok(_) => {
                             graph_2d.add_node_edge(below, above);
                         }
@@ -1346,7 +1346,7 @@ impl Plugin for EguiPlugin {
                 if let Some(graph_3d) =
                     graph.get_sub_graph_mut(bevy_core_pipeline::core_3d::graph::Core3d)
                 {
-                    match graph_3d.get_node_state(bevy_ui::graph::NodeUi::UiPass) {
+                    match graph_3d.get_node_state(bevy_ui_render::graph::NodeUi::UiPass) {
                         Ok(_) => {
                             graph_3d.add_node_edge(below, above);
                         }
@@ -1390,7 +1390,7 @@ pub struct EguiManagedTexture {
 #[cfg(feature = "render")]
 pub fn setup_primary_egui_context_system(
     mut commands: Commands,
-    new_cameras: Query<(Entity, Option<&EguiContext>), Added<bevy_render::camera::Camera>>,
+    new_cameras: Query<(Entity, Option<&EguiContext>), Added<bevy_camera::Camera>>,
     #[cfg(feature = "accesskit_placeholder")] adapters: Option<
         NonSend<bevy_winit::accessibility::AccessKitAdapters>,
     >,
@@ -1539,9 +1539,9 @@ pub fn capture_pointer_input_system(
         Entity,
         &mut EguiContext,
         &EguiContextSettings,
-        &bevy_render::camera::Camera,
+        &bevy_camera::Camera,
     )>,
-    mut output: EventWriter<PointerHits>,
+    mut output: MessageWriter<PointerHits>,
     window_to_egui_context_map: Res<WindowToEguiContextMap>,
 ) {
     use helpers::QueryHelper;
@@ -1647,7 +1647,7 @@ pub fn free_egui_textures_system(
     egui_render_output: Query<(Entity, &EguiRenderOutput)>,
     mut egui_managed_textures: ResMut<EguiManagedTextures>,
     mut image_assets: ResMut<Assets<Image>>,
-    mut image_events: EventReader<AssetEvent<Image>>,
+    mut image_events: MessageReader<AssetEvent<Image>>,
 ) {
     for (entity, egui_render_output) in egui_render_output.iter() {
         for &texture_id in &egui_render_output.textures_delta.free {
@@ -1662,7 +1662,7 @@ pub fn free_egui_textures_system(
 
     for image_event in image_events.read() {
         if let AssetEvent::Removed { id } = image_event {
-            egui_user_textures.remove_image(&Handle::<Image>::Weak(*id));
+            egui_user_textures.remove_image(*id);
         }
     }
 }
@@ -1732,7 +1732,7 @@ pub struct UpdateUiSizeAndScaleQuery {
     ctx: &'static mut EguiContext,
     egui_input: &'static mut EguiInput,
     egui_settings: &'static EguiContextSettings,
-    camera: &'static bevy_render::camera::Camera,
+    camera: &'static bevy_camera::Camera,
 }
 
 #[cfg(feature = "render")]

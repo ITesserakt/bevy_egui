@@ -120,7 +120,7 @@ fn ui_example_system(
 ) -> Result {
     if !*is_initialized {
         *is_initialized = true;
-        *rendered_texture_id = contexts.add_image(images.bevy_icon.clone_weak());
+        *rendered_texture_id = contexts.add_image(&images.bevy_icon);
     }
 
     let ctx = contexts.ctx_mut()?;
@@ -232,17 +232,17 @@ fn ui_example_system(
         ui_state.inverted = !ui_state.inverted;
     }
     let bevy_icon_handle = if ui_state.inverted {
-        images.bevy_icon_inverted.clone_weak()
+        &images.bevy_icon_inverted
     } else {
-        images.bevy_icon.clone_weak()
+        &images.bevy_icon
     };
     if load || invert {
         // If an image is already added to the context, it'll return an existing texture id.
-        *rendered_texture_id = contexts.add_image(bevy_icon_handle.clone_weak());
+        *rendered_texture_id = contexts.add_image(bevy_icon_handle);
     }
     if copy {
         let image = image_assets
-            .get(&bevy_icon_handle)
+            .get(bevy_icon_handle)
             .expect("images should be created");
 
         contexts

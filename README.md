@@ -44,8 +44,8 @@ Here's a minimal usage example:
 ```toml
 # Cargo.toml
 [dependencies]
-bevy = "0.16.0"
-bevy_egui = "0.36.0"
+bevy = "0.17.0-rc.1"
+bevy_egui = "0.37.0"
 ```
 
 ```rust

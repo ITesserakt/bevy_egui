@@ -1,6 +1,8 @@
 use bevy::{
+    camera::RenderTarget,
     math::primitives::Rectangle,
-    prelude::{MeshMaterial2d, *},
+    prelude::*,
+    sprite_render::MeshMaterial2d,
     window::PrimaryWindow,
 };
 use bevy_egui::{
@@ -56,7 +58,7 @@ struct AppState {
     displayed_ui: DisplayedUi,
     color_test: ColorTest,
     top_panel_height: u32,
-    egui_texture_image_handle: Handle<bevy::image::Image>,
+    egui_texture_image_asset_id: AssetId<bevy::image::Image>,
     egui_texture_image_id: egui::TextureId,
 }
 
@@ -66,7 +68,7 @@ impl Default for AppState {
             displayed_ui: DisplayedUi::Regular,
             color_test: Default::default(),
             top_panel_height: 0,
-            egui_texture_image_handle: Handle::default(),
+            egui_texture_image_asset_id: AssetId::default(),
             egui_texture_image_id: egui::TextureId::User(0),
         }
     }
@@ -127,9 +129,8 @@ fn setup_system(
         EguiTextureImageEguiContext,
         EguiMultipassSchedule::new(RenderToEguiTextureImageContextPass),
     ));
-    app_state.egui_texture_image_handle = egui_texture_image_handle.clone_weak();
-    app_state.egui_texture_image_id =
-        egui_contexts.add_image(egui_texture_image_handle.clone_weak());
+    app_state.egui_texture_image_asset_id = AssetId::from(&egui_texture_image_handle);
+    app_state.egui_texture_image_id = egui_contexts.add_image(&egui_texture_image_handle);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -183,7 +184,7 @@ fn update_image_size_system(
 fn update_egui_hovered_context(
     mut commands: Commands,
     app_state: Res<AppState>,
-    mut cursor_moved_reader: EventReader<CursorMoved>,
+    mut cursor_moved_reader: MessageReader<CursorMoved>,
     mut egui_contexts: Query<(
         Entity,
         &mut EguiContextPointerPosition,
@@ -260,7 +261,7 @@ fn ui_system(
         DisplayedUi::MeshImage => {}
         DisplayedUi::EguiTextureImage => {
             let egui_texture_image = images
-                .get(&app_state.egui_texture_image_handle)
+                .get(app_state.egui_texture_image_asset_id)
                 .expect("Expected a created image");
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -295,7 +296,6 @@ fn render_to_image_ui_system<C: Component>(
 //
 
 use bevy_ecs::schedule::ScheduleLabel;
-use bevy_render::camera::RenderTarget;
 use egui::{
     emath::GuiRounding, epaint, lerp, pos2, vec2, widgets::color_picker::show_color, Align2,
     Color32, FontId, Image, Mesh, Pos2, Rect, Response, Rgba, RichText, Sense, Shape, Stroke,
